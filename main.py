@@ -6,9 +6,13 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 import plotly.graph_objects as go
+from binance.client import Client
+
+import config
 
 API_URL = "https://api.binance.com/api/v3/klines"
 WS_URL = "wss://stream.binance.com:9443/ws/{symbol}@kline_{interval}"
+
 
 class BinanceCandlestickAnalyzer:
     def __init__(self, symbol, period, interval, limit):
@@ -105,11 +109,16 @@ class BinanceCandlestickAnalyzer:
 def main():
     st.title("Binance Candlestick Analysis")
 
-    symbol = st.sidebar.text_input("Symbol", "BNBUSDT")
+    client = Client(config.API_KEY, config.SECRET_KEY)
+
+    symbols = [symbol['symbol'] for symbol in client.get_exchange_info()['symbols']]
+
+    symbol = st.sidebar.selectbox("Symbol", symbols, index=symbols.index("BNBUSDT"))
+
+    intervals = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d", "1w", "1M"]
+    interval = st.sidebar.selectbox("Interval", intervals, index=intervals.index("30m"))
+
     period = st.sidebar.number_input("Period", min_value=1, value=8)
-    interval = st.sidebar.selectbox("Interval",
-                                    ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "8h", "12h", "1d", "3d",
-                                     "1w", "1M"], index=4)
     limit = st.sidebar.number_input("Limit", min_value=1, value=3)
 
     if st.sidebar.button("Start Analysis"):
