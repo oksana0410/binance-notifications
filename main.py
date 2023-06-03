@@ -4,7 +4,7 @@ import requests
 import websocket
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from binance.client import Client
 
@@ -50,45 +50,41 @@ class BinanceCandlestickAnalyzer:
     def on_message(self, ws, message):
         json_message = json.loads(message)
         candles = json_message["k"]
+        if candles["x"]:
+            close_price = decimal.Decimal(candles["c"])
+            self.close_prices.append(close_price)
 
-        close_price = decimal.Decimal(candles["c"])
-        self.close_prices.append(close_price)
+            if len(self.close_prices) > self.period:
+                self.close_prices.pop(0)
 
-        if len(self.close_prices) > self.period:
-            self.close_prices.pop(0)
+            sma_value = self.calculate_sma(self.close_prices, self.period)
 
-        sma_value = self.calculate_sma(self.close_prices, self.period)
+            if close_price < sma_value:
+                self.candle_count += 1
+                if self.candle_count >= self.limit:
+                    timestamp = datetime.fromtimestamp(int(candles['T']) / 1000).strftime('%Y-%m-%d %H:%M:%S')
+                    self.notification_container.warning(
+                        f"Number of candles with Close Price < SMA ("
+                        f"{self.candle_count}) exceeds the limit ({self.limit})! Timestamp: {timestamp}"
+                    )
+            else:
+                self.candle_count = 0
 
-        if close_price < sma_value:
-            self.candle_count += 1
-            if self.candle_count >= self.limit:
-                timestamp = datetime.fromtimestamp(int(candles['t']) / 1000).strftime('%Y-%m-%d %H:%M:%S')
-                self.notification_container.warning(
-                    f"Number of candles with Close Price < SMA ({self.candle_count}) exceeds the limit ({self.limit})! Timestamp: {timestamp}")
-        else:
-            self.candle_count = 0
-
-        self.data.append((len(self.data), close_price, sma_value))
-        self.update_graph()
+            timestamp = pd.to_datetime(candles['T'], unit='ms') + timedelta(hours=3)
+            self.data.append((timestamp, close_price, sma_value))
+            self.update_graph()
 
     def on_close(self, ws):
         st.write("WebSocket connection closed.")
 
     def update_graph(self):
-        df = pd.DataFrame(self.data, columns=["Index", "Close Price", "SMA Value"])
-        df.set_index("Index", inplace=True)
+        df = pd.DataFrame(self.data, columns=["Timestamp", "Close Price", "SMA Value"])
 
         fig = go.Figure()
-        fig.add_trace(go.Scatter(x=df.index, y=df["Close Price"], mode='lines', name='Close Price'))
-        fig.add_trace(go.Scatter(x=df.index, y=df["SMA Value"], mode='lines', name='SMA Value'))
+        fig.add_trace(go.Scatter(x=df["Timestamp"], y=df["Close Price"], mode='lines', name='Close Price'))
+        fig.add_trace(go.Scatter(x=df["Timestamp"], y=df["SMA Value"], mode='lines', name='SMA Value'))
 
         chart = self.chart_container.plotly_chart(fig, use_container_width=True)
-
-        # Mutate the chart with new data
-        chart.data[0].x = df.index
-        chart.data[0].y = df["Close Price"]
-        chart.data[1].x = df.index
-        chart.data[1].y = df["SMA Value"]
 
     def analyze_candlesticks(self):
         closing_prices = self.get_historical_candles()
